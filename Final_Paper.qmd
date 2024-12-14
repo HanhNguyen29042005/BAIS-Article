@@ -1,0 +1,254 @@
+---
+title: "Final Project"
+format: html
+editor: visual
+---
+
+# What is the price of going home?
+
+## Introduction
+
+Every academic semester, Xavier University welcomes many international students from all around the world, part of them start a new journey with 4 exciting years in front of them, and the other part, exchanged students, come for a 3-month experience and will go back home after 1 semester . This Fall 2024, Xavier welcomed exchanged students from France, Spain, Germany, South Korean.
+
+This document run analysis about the price of flights from Cincinnati to Barcelona, Berlin, Lyon, Seoul, and Ho Chi Minh city ( the cities were randomly selected based on the size of the airport/city and the fact whether the airport takes in international flights). Moreover, we will also compare the variation of the price in two different date - Friday the 13th and Friday the 20th. In the data set, we focus on the following variables:
+
+-   Departure time
+
+-   Destination
+
+-   Price
+
+-   Airlines responsible for domestic flights (inside US)
+
+-   Airlines responsible for international flights (flights out of US)
+
+-   Rough estimation of duration (rough amount of hour in a flight )
+
+-   Date (Friday 13th vs 20th)
+
+-   Stops
+
+## Setup and Data Wrangling
+
+There are some wrangling that need to be made in order to run analysis for thesis questions.
+
+-   Separating the airline companies for national and international flights
+
+-   Changing departure time from 12-hour display to 24-hour display for further analysis
+
+-   Creating a new variable of "rough_estimated_duration" to be the number of hours of the flight
+
+-   Creating a new categorical variable named "Time-frame" - for the flights that have departure time is earlier than 9:00 AM –\> early flight; between 9:00 AM and 18:00 –\> Normal; between 18:00 to 22:00 –\> Night flights; later than 22:00 –\> Late flights.
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+library(tidyverse)
+library(dplyr)
+flights <- read.csv("flight_data.csv") 
+
+split_airline_names <- function(name) {
+  # Initialize a vector to store the parts of the name
+  known_airlines <- c("Iberia", "Lufthansa", "Air Canada", "British Airways", "Air Dolomiti", 
+                      "Austrian", "Brussels Airlines", "Air France", "Tap Air Portugal", "KLM", 
+                      "Finnair", "Aer Lingus", "American", "United", "SWISS", "Delta", "Virgin Atlantic", 
+                      "ITA", "Scandinavian Airlines", "Jeju Air", "Asiana", "Korean Air", "China Airlines", 
+                      "Turkish Airlines", "EVA Air", "Emirates", "Qatar Airways", "Etihad", "Cathay Pacific", 
+                      "China Southern", "ANA", "STARLUX Airlines", "Vietnam Airlines", "JAL", "China Eastern", 
+                      "THAI", "Malaysia Airlines", "Singapore Airlines")
+  
+  parts <- c()
+  
+  # Loop over each known airline name
+  for (airline in known_airlines) {
+    if (grepl(airline, name)) {
+      parts <- c(parts, airline)
+      return(airline)  # Remove matched airline name from the string
+    }
+  }
+  return(NA)
+}
+
+flights <- flights %>% 
+  mutate(destination = str_replace(destination, "Ho Chi Minh city", "Ho Chi Minh"),
+         destination= factor(destination),
+         price= as.numeric(price),
+         airline_US = if_else(airline_US == "Air CanadaLufthansa", "Air Canada", 
+                   if_else(airline_US == "British AirwaysIberia", "British Airways", 
+                           if_else(airline_US == "British AirwaysAmerican", "British Airways",
+                                   if_else(airline_outside == "UnitedLufthansa", "United",
+                                           ifelse(airline_US == "DeltaVirgin Atlantic", "Delta",
+                                                  ifelse(airline_US=="AmericanBritish Airways","American",
+                                                         ifelse(airline_US =="DeltaKLM", "Delta",
+                                                                ifelse(airline_US=="Air CanadaUnited", "Air Canada", airline_US)))))))),
+         airline_outside= sapply(airline_outside, split_airline_names),
+         time_frame = case_when(flight_hour < 9 ~ "Early morning", 
+           flight_hour >= 9 & flight_hour < 18 ~ "Normal",  
+           flight_hour >= 18 & flight_hour < 22 ~ "Night flight", 
+           TRUE ~ "Late night" ))
+
+flights <-  flights %>% 
+  mutate(price=as.numeric(price),
+         airline_US=as.factor(airline_US),
+         airline_outside=as.factor(airline_outside),
+         destination=as.factor(destination))
+write.csv(flights,"jmp.csv")
+```
+
+## Thesis Questions
+
+-   How do domestic and international airlines vary in terms of the prices and flight duration?
+
+-   What is the relationship between flight time (rough_estimated_duration) and price based on departure time?
+
+-   Is there a significant price difference between flights departing on Fridays (13th vs. 20th)?
+
+## Question number 1
+
+### How do domestic and international airlines impact the prices and flight duration?
+
+For international flights, they do not fly straight out of the U.S., but will stop at an airport on either the west or east side, depends on the destination of the flight. Therefore, there are usually two different airlines cooperated together.
+
+#### Overall Visualization (Domestic Flights)
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+ggplot(flights,aes(airline_US,price))+
+  geom_boxplot()+
+  labs(title="Price ~ Airline Companies in the US", x="Airlines - Domestic Flights", y="Price")
+
+```
+
+Based on the box-plot above, we can assume that there are some differences among the average price of the tickets from different airlines. However, the difference does not seem significant. Moreover, British Airways has the largest range of price for their tickets.
+
+#### Anova Test
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+model1 <- aov(price~airline_US, data= flights)
+summary(model1)
+knitr::include_graphics("jmp.png")
+```
+
+According to the p-value of the ANOVA test (price \~ airlines_US), the p-value =0.0000674 \< 0.05. Therefore, we can conclude that there is significant difference among the average price of the tickets based on the U.S. airlines. Based on our visualization, Alaska Airlines has the greatest average of the price, and Air Canada seems to have the lowest mean.
+
+The second table is the Tukey Post-Hoc test which checks for any pairwise difference in the mean values at all factor levels, this test was run in JMP program. Base off this table, we can see the significant difference between Air Canada and British Airways (-1667.19, which means that the price ticket of Air Canada is \$1,667.19 less than British Airways) The number might seem unreasonable, since the flights to Seoul and Ho Chi Minh city tend to be longer and more expensive, the unusual difference is expected.
+
+#### Overall Visualization (Out-of-US Flights)
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+flights %>% 
+  count(airline_outside) %>%              
+  filter(n > 20) %>%                      
+  inner_join(flights, by = "airline_outside") %>%  
+  ggplot(aes(x = airline_outside, y = price)) +  
+  geom_boxplot() + 
+  labs(title = "Price ~ Airline Companies in the US", 
+       x = "Airlines - International Flights", 
+       y = "Price")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+```
+
+The box-plot provides the range and median of price of flights that are operated by certain airlines. The visualization only counts the airlines that appeare more than 25 times. This graph give us an overall of the difference in tickets' price among the airlines, and help us determine whether there is a significant difference among the airlines, we will run the ANOVA test, so we could be able to statistically conclude the difference among group means.
+
+#### ANOVA analysis
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+reduced <- flights %>% 
+  count(airline_outside) %>%              
+  filter(n > 20) %>%                      
+  inner_join(flights, by = "airline_outside") 
+model2 <- aov(price~airline_outside, data=flights)
+summary(model2)
+write.csv(reduced, "reduced.csv")
+```
+
+This ANOVA result ran on the data that contains airlines that appeared more than 20 times in the original data set. Base off the result of the ANOVA test, we can conclude that there are a significant difference between the means of price.
+
+![](jmp_outside.png)
+
+This table of JMP - Tukey HSD test tells us how much the price of the tickets varies among the airlines that are responsible for international flights.
+
+For example, the flights that are operated by Air France is \$3,099 less expensive than flights of Asiana.
+
+## Question Number 2
+
+-   What is the relationship between flight time (rough_estimated_duration) and price based on departure time?
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+ggplot(flights,aes(time_frame, price))+
+  geom_boxplot()+
+  labs(title="Time Frame vs Prive", x = 'Time Frame', y="Price")
+```
+
+The visualization above illustrates the difference in means of price ticket by the departure time of the flights. We can see that there is a slight difference in the price of the tickets depending on what time the planes take off. The night flights are more expensive than the flights of other categories, due to the convenience factor.
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+ggplot(flights, aes(x = rough_estimated_duration, y = price, color = time_frame)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Flight Price vs. Flight Duration by Departure Hour", 
+       x = "Estimated Flight Duration (hrs)", 
+       y = "Price ($)",
+       color = "Departure Hour") +
+  theme_minimal()
+```
+
+From the graph above, each dot is a flight, and the color of the dots defined the time frame of the departure hour, x-axis is the estimated flight duration and the y-axis is the price of the flights. The flights that have normal time frame happen more than other time, and they are also usually cheaper than early morning time or the night flights.
+
+## Question Number 3
+
+Is there a significant price difference between flights departing on Fridays (13th vs. 20th)?
+
+### Overall visualization
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+table(flights$date)
+ggplot(flights, aes(date, price))+
+  geom_boxplot()
+```
+
+This box-plot conveys that there is a significant difference in means of the tickets' price between the flights on Friday 13th and 20th. If the planes fly out on Friday 20th, the price is much higher, since it is closer to the holidays.
+
+```{r}
+#| echo: false
+#| message: false
+#| error: false
+#| warning: false
+model <- aov(price~date, data=flights)
+summary(model)
+```
+
+Based off this ANOVA result, we can statistically conclude that there is a significant difference in the price of flight tickets on Friday 13th vs Friday 20th.
+
+![](aov.png)
+
+Based on the JMP table of Student's t test, the flight tickets on Friday 20th are \$1,253.69 more expensive than tickets on the 13th.
